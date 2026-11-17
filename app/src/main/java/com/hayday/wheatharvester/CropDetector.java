@@ -55,7 +55,7 @@ public final class CropDetector {
             for (int col = 0; col < COLS; col++) {
                 int x0 = col * width / COLS, x1 = (col + 1) * width / COLS;
                 int total = 0, yellow = 0;
-                float hueDistance = 0f;
+                float hueDistance = 0f;\n                float hueTotal = 0f;
                 int sx = Math.max(1, (x1 - x0) / 12);
                 int sy = Math.max(1, (y1 - y0) / 12);
                 for (int y = y0; y < y1; y += sy) {
@@ -64,7 +64,7 @@ public final class CropDetector {
                         total++;
                         if (hsv[0] >= 32f && hsv[0] <= 68f && hsv[1] >= 0.30f && hsv[2] >= 0.28f) {
                             yellow++;
-                            hueDistance += Math.abs(hsv[0] - ripeHue);
+                            hueDistance += Math.abs(hsv[0] - ripeHue);\n                            hueTotal += hsv[0];
                         }
                     }
                 }
