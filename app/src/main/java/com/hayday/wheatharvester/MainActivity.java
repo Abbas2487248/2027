@@ -5,10 +5,12 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -17,9 +19,12 @@ import android.widget.Toast;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 501;
-    private boolean gameOpened = false;
     private static final String HAY_DAY_PACKAGE = "com.supercell.hayday";
+    private static final String PREFS = "wheat_bot";
+    private static final String AUTO_HARVEST = "auto_harvest";
+    private boolean gameOpened = false;
     private TextView status;
+    private Button autoButton;
     private BroadcastReceiver receiver;
 
     @Override public void onCreate(Bundle state) {
@@ -38,7 +43,7 @@ public class MainActivity extends Activity {
         root.addView(title, params());
 
         TextView info = new TextView(this);
-        info.setText("اضغط بدء التسجيل ووافق على مشاركة الشاشة. بعدها سيفتح Hay Day تلقائياً وتستمر مراقبة الشاشة بالخلفية.");
+        info.setText("يحلل الشاشة ويحدد مناطق القمح القوية فقط. النقر التجريبي يحتاج تفعيل خدمة إمكانية الوصول يدوياً.");
         info.setTextSize(16);
         info.setTextColor(0xff333333);
         info.setGravity(Gravity.CENTER);
@@ -51,15 +56,38 @@ public class MainActivity extends Activity {
         root.addView(start, bp);
         start.setOnClickListener(v -> requestScreenCapture());
 
+        Button accessibility = new Button(this);
+        accessibility.setText("فتح إعدادات إمكانية الوصول");
+        LinearLayout.LayoutParams ap = params(); ap.topMargin = 8;
+        root.addView(accessibility, ap);
+        accessibility.setOnClickListener(v ->
+                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+
+        autoButton = new Button(this);
+        LinearLayout.LayoutParams abp = params(); abp.topMargin = 8;
+        root.addView(autoButton, abp);
+        updateAutoButton();
+        autoButton.setOnClickListener(v -> {
+            SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+            boolean enabled = !prefs.getBoolean(AUTO_HARVEST, false);
+            prefs.edit().putBoolean(AUTO_HARVEST, enabled).apply();
+            updateAutoButton();
+            status.setText(enabled
+                    ? "وضع النقر التجريبي مفعّل. سيحاول نقرة واحدة على أقوى منطقة قمح مرشحة فقط."
+                    : "تم إيقاف النقر التجريبي.");
+        });
+
         Button stop = new Button(this);
         stop.setText("إيقاف المراقبة");
         LinearLayout.LayoutParams sp = params(); sp.topMargin = 8;
         root.addView(stop, sp);
         stop.setOnClickListener(v -> {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean(AUTO_HARVEST, false).apply();
+            updateAutoButton();
             Intent service = new Intent(this, ScreenMonitorService.class);
             service.setAction(ScreenMonitorService.ACTION_STOP);
             startService(service);
-            status.setText("تم طلب إيقاف المراقبة.");
+            status.setText("تم إيقاف المراقبة والنقر التجريبي.");
         });
 
         status = new TextView(this);
@@ -73,14 +101,17 @@ public class MainActivity extends Activity {
         registerStatusReceiver();
     }
 
+    private void updateAutoButton() {
+        if (autoButton == null) return;
+        boolean enabled = getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(AUTO_HARVEST, false);
+        autoButton.setText(enabled ? "إيقاف النقر التجريبي" : "تشغيل النقر التجريبي");
+    }
+
     private void requestScreenCapture() {
         try {
             MediaProjectionManager manager =
                     (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-            if (manager == null) {
-                showError("خدمة تسجيل الشاشة غير متاحة على الجهاز.");
-                return;
-            }
+            if (manager == null) { showError("خدمة تسجيل الشاشة غير متاحة على الجهاز."); return; }
             status.setText("بانتظار موافقتك على تسجيل الشاشة...");
             startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_CAPTURE);
         } catch (Exception e) {
@@ -109,9 +140,7 @@ public class MainActivity extends Activity {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show();
     }
 
-    private LinearLayout.LayoutParams params() {
-        return new LinearLayout.LayoutParams(-1, -2);
-    }
+    private LinearLayout.LayoutParams params() { return new LinearLayout.LayoutParams(-1, -2); }
 
     private void registerStatusReceiver() {
         receiver = new BroadcastReceiver() {
@@ -120,10 +149,7 @@ public class MainActivity extends Activity {
                     status.setText(intent.getStringExtra("message"));
                 } else if (ScreenMonitorService.ACTION_READY.equals(intent.getAction())) {
                     status.setText("التسجيل شغال. جارٍ فتح Hay Day...");
-                    if (!gameOpened) {
-                        gameOpened = true;
-                        openHayDay();
-                    }
+                    if (!gameOpened) { gameOpened = true; openHayDay(); }
                 }
             }
         };
@@ -141,15 +167,12 @@ public class MainActivity extends Activity {
             status.setText("لم تتم الموافقة على تسجيل الشاشة. اضغط بدء التسجيل وحاول مرة أخرى.");
             return;
         }
-
         try {
             Intent service = new Intent(this, ScreenMonitorService.class);
             service.putExtra("resultCode", resultCode);
             service.putExtra("resultData", data);
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
-            else startService(service);
-
-            status.setText("تم إرسال طلب التسجيل. أنتظر تأكيد تشغيل التسجيل قبل فتح اللعبة...");
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(service); else startService(service);
+            status.setText("تم إرسال طلب التسجيل. أنتظر تأكيد تشغيل التسجيل...");
         } catch (Exception e) {
             showError("تعذر تشغيل خدمة التسجيل: " + e.getClass().getSimpleName() + " - " + e.getMessage());
         }
