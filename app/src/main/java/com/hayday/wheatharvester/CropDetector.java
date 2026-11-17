@@ -1,57 +1,75 @@
 package com.hayday.wheatharvester;
 
+import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 
+import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Lightweight candidate-region detector.
- * This is a visual heuristic for prototyping, not a trained Hay Day crop model.
+ * Conservative on-device wheat candidate detector.
+ * Uses bundled crop references as color-profile hints plus spatial HSV checks.
+ * This is NOT a trained ML model; uncertain regions are never actionable.
  */
 public final class CropDetector {
+    public enum Kind { RIPE_WHEAT_CANDIDATE, EMPTY_OR_NON_YELLOW, UNCERTAIN }
+
     public static final class Region {
         public final float left, top, right, bottom;
         public final float yellowRatio;
+        public final float confidence;
+        public final Kind kind;
 
-        Region(float left, float top, float right, float bottom, float yellowRatio) {
+        Region(float left, float top, float right, float bottom,
+               float yellowRatio, float confidence, Kind kind) {
             this.left = left; this.top = top; this.right = right; this.bottom = bottom;
-            this.yellowRatio = yellowRatio;
+            this.yellowRatio = yellowRatio; this.confidence = confidence; this.kind = kind;
         }
     }
 
     private static final int COLS = 24;
     private static final int ROWS = 14;
+    private static final float MIN_YELLOW = 0.34f;
 
     private CropDetector() {}
 
-    public static List<Region> findYellowCandidates(Bitmap bitmap) {
+    public static List<Region> analyze(Context context, Bitmap bitmap) {
+        float ripeHue = referenceHue(context, "crops/ripe_wheat.png", 48f);
+        // Empty-field reference is retained as a negative reference profile.
+        float emptyHue = referenceHue(context, "crops/empty_field.png", 28f);
         int width = bitmap.getWidth(), height = bitmap.getHeight();
         float[][] ratios = new float[ROWS][COLS];
+        float[][] hueScores = new float[ROWS][COLS];
         boolean[][] active = new boolean[ROWS][COLS];
         float[] hsv = new float[3];
 
         for (int row = 0; row < ROWS; row++) {
-            int y0 = row * height / ROWS;
-            int y1 = (row + 1) * height / ROWS;
+            int y0 = row * height / ROWS, y1 = (row + 1) * height / ROWS;
             for (int col = 0; col < COLS; col++) {
-                int x0 = col * width / COLS;
-                int x1 = (col + 1) * width / COLS;
+                int x0 = col * width / COLS, x1 = (col + 1) * width / COLS;
                 int total = 0, yellow = 0;
-                int sx = Math.max(1, (x1 - x0) / 10);
-                int sy = Math.max(1, (y1 - y0) / 10);
+                float hueDistance = 0f;
+                int sx = Math.max(1, (x1 - x0) / 12);
+                int sy = Math.max(1, (y1 - y0) / 12);
                 for (int y = y0; y < y1; y += sy) {
                     for (int x = x0; x < x1; x += sx) {
                         Color.colorToHSV(bitmap.getPixel(x, y), hsv);
                         total++;
-                        if (hsv[0] >= 34f && hsv[0] <= 68f
-                                && hsv[1] >= 0.28f && hsv[2] >= 0.30f) yellow++;
+                        if (hsv[0] >= 32f && hsv[0] <= 68f && hsv[1] >= 0.30f && hsv[2] >= 0.28f) {
+                            yellow++;
+                            hueDistance += Math.abs(hsv[0] - ripeHue);
+                        }
                     }
                 }
-                ratios[row][col] = total == 0 ? 0f : (float) yellow / total;
-                active[row][col] = ratios[row][col] >= 0.30f;
+                float ratio = total == 0 ? 0f : (float) yellow / total;
+                ratios[row][col] = ratio;
+                float meanDistance = yellow == 0 ? 180f : hueDistance / yellow;
+                hueScores[row][col] = Math.max(0f, 1f - meanDistance / 30f);
+                active[row][col] = ratio >= MIN_YELLOW;
             }
         }
 
@@ -64,10 +82,11 @@ public final class CropDetector {
                 ArrayDeque<int[]> queue = new ArrayDeque<>();
                 queue.add(new int[]{r, c}); seen[r][c] = true;
                 int minR=r, maxR=r, minC=c, maxC=c, count=0;
-                float sum=0f;
+                float sum=0f, hueSum=0f;
                 while (!queue.isEmpty()) {
                     int[] p = queue.removeFirst();
-                    int cr=p[0], cc=p[1]; count++; sum += ratios[cr][cc];
+                    int cr=p[0], cc=p[1]; count++;
+                    sum += ratios[cr][cc]; hueSum += hueScores[cr][cc];
                     minR=Math.min(minR,cr); maxR=Math.max(maxR,cr);
                     minC=Math.min(minC,cc); maxC=Math.max(maxC,cc);
                     for (int k=0;k<4;k++) {
@@ -78,12 +97,42 @@ public final class CropDetector {
                         }
                     }
                 }
-                if (count >= 3) {
-                    regions.add(new Region((float)minC/COLS, (float)minR/ROWS,
-                            (float)(maxC+1)/COLS, (float)(maxR+1)/ROWS, sum/count));
-                }
+                if (count < 2) continue;
+                float yellowRatio = sum / count;
+                float hueMatch = hueSum / count;
+                float confidence = Math.min(0.95f, 0.55f * yellowRatio + 0.45f * hueMatch);
+                // A yellow patch is only a candidate. The color reference alone
+                // cannot prove crop identity, so never mark it as confirmed.
+                Kind kind = (yellowRatio >= 0.48f && hueMatch >= 0.55f)
+                        ? Kind.RIPE_WHEAT_CANDIDATE : Kind.UNCERTAIN;
+                regions.add(new Region((float)minC/COLS, (float)minR/ROWS,
+                        (float)(maxC+1)/COLS, (float)(maxR+1)/ROWS,
+                        yellowRatio, confidence, kind));
             }
         }
         return regions;
+    }
+
+    private static float referenceHue(Context context, String path, float fallback) {
+        Bitmap ref = null;
+        try {
+            ref = BitmapFactory.decodeStream(context.getAssets().open(path));
+            if (ref == null) return fallback;
+            float[] hsv = new float[3];
+            float total = 0f, count = 0f;
+            int sx = Math.max(1, ref.getWidth() / 32);
+            int sy = Math.max(1, ref.getHeight() / 32);
+            for (int y=0; y<ref.getHeight(); y+=sy) {
+                for (int x=0; x<ref.getWidth(); x+=sx) {
+                    Color.colorToHSV(ref.getPixel(x,y), hsv);
+                    if (hsv[1] > 0.20f && hsv[2] > 0.20f) { total += hsv[0]; count++; }
+                }
+            }
+            return count == 0 ? fallback : total / count;
+        } catch (IOException | RuntimeException e) {
+            return fallback;
+        } finally {
+            if (ref != null) ref.recycle();
+        }
     }
 }
