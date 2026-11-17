@@ -147,20 +147,21 @@ public class ScreenMonitorService extends Service {
                 if (image != null) {
                     Bitmap bitmap = imageToBitmap(image);
                     if (bitmap != null) {
-                        List<CropDetector.Region> regions = CropDetector.findYellowCandidates(bitmap);
+                        List<CropDetector.Region> regions = CropDetector.analyze(getApplicationContext(), bitmap);
                         StringBuilder msg = new StringBuilder();
-                        msg.append("تعرف مباشر — الشاشة ").append(width).append("×").append(height)
-                           .append("\nمناطق صفراء مرشحة: ").append(regions.size()).append("\n");
+                        msg.append("تحليل بصري مباشر — الشاشة ").append(width).append("×").append(height)
+                           .append("\nمناطق مرشحة: ").append(regions.size()).append("\n");
                         int limit = Math.min(8, regions.size());
                         for (int i = 0; i < limit; i++) {
                             CropDetector.Region r = regions.get(i);
-                            msg.append(i + 1).append(") x:")
+                            msg.append(i + 1).append(") ").append(label(r.kind)).append(" — ثقة تقريبية ")
+                               .append(Math.round(r.confidence * 100)).append("% — x:")
                                .append(Math.round(r.left * 100)).append("–").append(Math.round(r.right * 100))
                                .append("% y:").append(Math.round(r.top * 100)).append("–")
                                .append(Math.round(r.bottom * 100)).append("% — أصفر ")
                                .append(Math.round(r.yellowRatio * 100)).append("%\n");
                         }
-                        msg.append("تنبيه: هذه مرشحات لونية وليست تأكيداً للقمح الناضج.");
+                        msg.append("تنبيه: القمح غير مؤكد بصرياً. وضع معاينة فقط — لا توجد نقرات تلقائية.");
                         publish(msg.toString());
                         bitmap.recycle();
                     }
@@ -174,7 +175,7 @@ public class ScreenMonitorService extends Service {
         }
     };
 
-    private Bitmap imageToBitmap(Image image) {
+    private String label(CropDetector.Kind kind) {\n        if (kind == CropDetector.Kind.RIPE_WHEAT_CANDIDATE) return "مرشح قمح ناضج";\n        if (kind == CropDetector.Kind.EMPTY_OR_NON_YELLOW) return "غير أصفر";\n        return "غير مؤكد";\n    }\n\n    private Bitmap imageToBitmap(Image image) {
         Image.Plane plane = image.getPlanes()[0];
         ByteBuffer buffer = plane.getBuffer();
         int pixelStride = plane.getPixelStride();
