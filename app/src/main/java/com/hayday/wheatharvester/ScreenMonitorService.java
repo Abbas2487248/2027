@@ -112,13 +112,17 @@ public class ScreenMonitorService extends Service {
 
     private void startCapture() {
         DisplayMetrics metrics = new DisplayMetrics();
-        WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
-        if (Build.VERSION.SDK_INT >= 30) {
-            android.view.Display d = getDisplay();
-            if (d != null) d.getRealMetrics(metrics); else wm.getDefaultDisplay().getRealMetrics(metrics);
-        } else {
-            wm.getDefaultDisplay().getRealMetrics(metrics);
+        // A Service is not a visual Context on Android 10+, so Service.getDisplay()
+        // can throw "Context not associated with a display". Resolve the default
+        // display through DisplayManager instead.
+        DisplayManager displayManager =
+                (DisplayManager) getSystemService(DISPLAY_SERVICE);
+        android.view.Display defaultDisplay = displayManager == null
+                ? null : displayManager.getDisplay(android.view.Display.DEFAULT_DISPLAY);
+        if (defaultDisplay == null) {
+            throw new IllegalStateException("تعذر الوصول إلى الشاشة الرئيسية للجهاز");
         }
+        defaultDisplay.getRealMetrics(metrics);
         width = metrics.widthPixels;
         height = metrics.heightPixels;
         density = metrics.densityDpi;
