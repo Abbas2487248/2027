@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -16,6 +17,7 @@ import android.widget.Toast;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 501;
+    private static final String HAY_DAY_PACKAGE = "com.supercell.hayday";
     private TextView status;
     private BroadcastReceiver receiver;
 
@@ -35,7 +37,7 @@ public class MainActivity extends Activity {
         root.addView(title, params());
 
         TextView info = new TextView(this);
-        info.setText("التعرّف المباشر على الشاشة\nاضغط بدء المراقبة ثم وافق على مشاركة الشاشة. سيحلل التطبيق الإطارات دورياً ويعرض مواقع المناطق الصفراء المرشحة. لا ينفذ لمساً أو حصاداً تلقائياً في هذه النسخة.");
+        info.setText("اضغط بدء التسجيل ووافق على مشاركة الشاشة. بعدها سيفتح Hay Day تلقائياً وتستمر مراقبة الشاشة بالخلفية.");
         info.setTextSize(16);
         info.setTextColor(0xff333333);
         info.setGravity(Gravity.CENTER);
@@ -43,32 +45,10 @@ public class MainActivity extends Activity {
         root.addView(info, ip);
 
         Button start = new Button(this);
-        start.setText("بدء التعرف المباشر");
+        start.setText("بدء التسجيل وفتح اللعبة");
         LinearLayout.LayoutParams bp = params(); bp.topMargin = 24;
         root.addView(start, bp);
-        start.setOnClickListener(v -> {
-            try {
-                MediaProjectionManager manager =
-                        (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-                if (manager == null) {
-                    status.setText("تعذر تشغيل تسجيل الشاشة: خدمة النظام غير متاحة.");
-                    Toast.makeText(this, "خدمة تسجيل الشاشة غير متاحة على الجهاز", Toast.LENGTH_LONG).show();
-                    return;
-                }
-                Intent captureIntent = manager.createScreenCaptureIntent();
-                if (captureIntent == null) {
-                    status.setText("تعذر إنشاء نافذة السماح بتسجيل الشاشة.");
-                    Toast.makeText(this, "لم يتمكن النظام من إنشاء طلب تسجيل الشاشة", Toast.LENGTH_LONG).show();
-                    return;
-                }
-                status.setText("جارٍ فتح نافذة السماح بتسجيل الشاشة...");
-                startActivityForResult(captureIntent, REQUEST_CAPTURE);
-            } catch (Exception e) {
-                String reason = e.getClass().getSimpleName() + ": " + e.getMessage();
-                status.setText("تعذر بدء تسجيل الشاشة: " + reason);
-                Toast.makeText(this, "خطأ: " + reason, Toast.LENGTH_LONG).show();
-            }
-        });
+        start.setOnClickListener(v -> requestScreenCapture());
 
         Button stop = new Button(this);
         stop.setText("إيقاف المراقبة");
@@ -92,6 +72,42 @@ public class MainActivity extends Activity {
         registerStatusReceiver();
     }
 
+    private void requestScreenCapture() {
+        try {
+            MediaProjectionManager manager =
+                    (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+            if (manager == null) {
+                showError("خدمة تسجيل الشاشة غير متاحة على الجهاز.");
+                return;
+            }
+            status.setText("بانتظار موافقتك على تسجيل الشاشة...");
+            startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_CAPTURE);
+        } catch (Exception e) {
+            showError("تعذر فتح إذن تسجيل الشاشة: " + e.getMessage());
+        }
+    }
+
+    private void openHayDay() {
+        try {
+            PackageManager pm = getPackageManager();
+            Intent game = pm.getLaunchIntentForPackage(HAY_DAY_PACKAGE);
+            if (game == null) {
+                status.setText("بدأت مراقبة الشاشة، لكن لم أجد لعبة Hay Day. تأكد أنها مثبتة.");
+                Toast.makeText(this, "لم يتم العثور على Hay Day", Toast.LENGTH_LONG).show();
+                return;
+            }
+            game.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+            startActivity(game);
+        } catch (Exception e) {
+            status.setText("بدأ التسجيل لكن تعذر فتح اللعبة: " + e.getMessage());
+        }
+    }
+
+    private void showError(String message) {
+        if (status != null) status.setText(message);
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+    }
+
     private LinearLayout.LayoutParams params() {
         return new LinearLayout.LayoutParams(-1, -2);
     }
@@ -99,7 +115,7 @@ public class MainActivity extends Activity {
     private void registerStatusReceiver() {
         receiver = new BroadcastReceiver() {
             @Override public void onReceive(Context context, Intent intent) {
-                if (ScreenMonitorService.ACTION_STATUS.equals(intent.getAction())) {
+                if (ScreenMonitorService.ACTION_STATUS.equals(intent.getAction()) && status != null) {
                     status.setText(intent.getStringExtra("message"));
                 }
             }
@@ -111,15 +127,23 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_CAPTURE) {
-            if (resultCode == RESULT_OK && data != null) {
-                Intent service = new Intent(this, ScreenMonitorService.class);
-                service.putExtra("resultCode", resultCode);
-                service.putExtra("resultData", data);
-                if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
-                else startService(service);
-                status.setText("بدأت المراقبة. ارجع إلى Hay Day واترك التطبيق يعمل.");
-            } else status.setText("لم تتم الموافقة على مشاركة الشاشة.");
+        if (requestCode != REQUEST_CAPTURE) return;
+        if (resultCode != RESULT_OK || data == null) {
+            status.setText("لم تتم الموافقة على تسجيل الشاشة. اضغط بدء التسجيل وحاول مرة أخرى.");
+            return;
+        }
+
+        try {
+            Intent service = new Intent(this, ScreenMonitorService.class);
+            service.putExtra("resultCode", resultCode);
+            service.putExtra("resultData", data);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
+            else startService(service);
+
+            status.setText("تم تشغيل التسجيل. جارٍ فتح Hay Day...");
+            openHayDay();
+        } catch (Exception e) {
+            showError("تعذر تشغيل خدمة التسجيل: " + e.getClass().getSimpleName() + " - " + e.getMessage());
         }
     }
 

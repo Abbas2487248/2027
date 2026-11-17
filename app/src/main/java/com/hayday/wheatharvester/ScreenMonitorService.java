@@ -5,6 +5,7 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
@@ -46,29 +47,57 @@ public class ScreenMonitorService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             stopCapture();
+            stopForeground(true);
             stopSelf();
             return START_NOT_STICKY;
         }
-        startForeground(7, buildNotification());
-        if (projection == null && intent != null) {
-            int code = intent.getIntExtra("resultCode", 0);
-            Intent data = getIntentExtra(intent);
-            if (data == null) {
-                publish("تعذر بدء مشاركة الشاشة.");
-                stopSelf();
-                return START_NOT_STICKY;
+
+        try {
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(7, buildNotification(),
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+            } else {
+                startForeground(7, buildNotification());
             }
-            MediaProjectionManager manager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-            projection = manager.getMediaProjection(code, data);
-            if (projection == null) {
-                publish("تعذر الحصول على صلاحية التقاط الشاشة.");
-                stopSelf();
-                return START_NOT_STICKY;
+
+            if (projection == null && intent != null) {
+                int code = intent.getIntExtra("resultCode", 0);
+                Intent data = getIntentExtra(intent);
+                if (code != RESULT_OK || data == null) {
+                    publish("تعذر بدء التسجيل: لم تصل موافقة تسجيل الشاشة إلى الخدمة.");
+                    stopForeground(true);
+                    stopSelf();
+                    return START_NOT_STICKY;
+                }
+
+                MediaProjectionManager manager =
+                        (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+                if (manager == null) throw new IllegalStateException("MediaProjectionManager غير متاح");
+
+                projection = manager.getMediaProjection(code, data);
+                if (projection == null) throw new IllegalStateException("لم يمنح النظام صلاحية التقاط الشاشة");
+
+                projection.registerCallback(new MediaProjection.Callback() {
+                    @Override public void onStop() {
+                        stopCapture();
+                        stopForeground(true);
+                        stopSelf();
+                    }
+                }, handler);
+                startCapture();
             }
-            projection.registerCallback(new MediaProjection.Callback() {
-                @Override public void onStop() { stopCapture(); stopSelf(); }
-            }, handler);
-            startCapture();
+        } catch (SecurityException | IllegalStateException e) {
+            publish("تعذر تشغيل تسجيل الشاشة: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            stopCapture();
+            stopForeground(true);
+            stopSelf();
+            return START_NOT_STICKY;
+        } catch (Exception e) {
+            publish("حدث خطأ عند بدء المراقبة: " + e.getMessage());
+            stopCapture();
+            stopForeground(true);
+            stopSelf();
+            return START_NOT_STICKY;
         }
         return START_NOT_STICKY;
     }
@@ -84,14 +113,19 @@ public class ScreenMonitorService extends Service {
         if (Build.VERSION.SDK_INT >= 30) {
             android.view.Display d = getDisplay();
             if (d != null) d.getRealMetrics(metrics); else wm.getDefaultDisplay().getRealMetrics(metrics);
-        } else wm.getDefaultDisplay().getRealMetrics(metrics);
-        width = metrics.widthPixels; height = metrics.heightPixels; density = metrics.densityDpi;
+        } else {
+            wm.getDefaultDisplay().getRealMetrics(metrics);
+        }
+        width = metrics.widthPixels;
+        height = metrics.heightPixels;
+        density = metrics.densityDpi;
         reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 3);
         display = projection.createVirtualDisplay("HayDayLiveAnalysis", width, height, density,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.getSurface(), null, handler);
+        if (display == null) throw new IllegalStateException("تعذر إنشاء شاشة المراقبة الافتراضية");
         running = true;
         handler.post(analyzeFrame);
-        publish("المراقبة تعمل. افتح Hay Day؛ التحليل يتكرر كل ثانيتين تقريباً.");
+        publish("التسجيل يعمل الآن. افتح Hay Day؛ تحليل الشاشة مستمر بالخلفية.");
     }
 
     private final Runnable analyzeFrame = new Runnable() {
@@ -177,7 +211,6 @@ public class ScreenMonitorService extends Service {
         if (display != null) { display.release(); display = null; }
         if (reader != null) { reader.close(); reader = null; }
         if (projection != null) { projection.stop(); projection = null; }
-        publish("المراقبة متوقفة.");
     }
 
     @Override public void onDestroy() {
