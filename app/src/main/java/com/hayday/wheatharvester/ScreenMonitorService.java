@@ -179,7 +179,9 @@ public class ScreenMonitorService extends Service {
         if (kind == CropDetector.Kind.RIPE_WHEAT_CANDIDATE) return "مرشح قمح ناضج";
         if (kind == CropDetector.Kind.EMPTY_OR_NON_YELLOW) return "غير أصفر";
         return "غير مؤكد";
-    }\n\n    private Bitmap imageToBitmap(Image image) {
+    }
+
+    private Bitmap imageToBitmap(Image image) {
         Image.Plane plane = image.getPlanes()[0];
         ByteBuffer buffer = plane.getBuffer();
         int pixelStride = plane.getPixelStride();
