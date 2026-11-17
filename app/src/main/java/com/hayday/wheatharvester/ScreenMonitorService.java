@@ -28,6 +28,7 @@ import java.util.List;
 public class ScreenMonitorService extends Service {
     public static final String ACTION_STATUS = "com.hayday.wheatharvester.STATUS";
     public static final String ACTION_STOP = "com.hayday.wheatharvester.STOP";
+    public static final String ACTION_READY = "com.hayday.wheatharvester.READY";
     private static final String CHANNEL = "hayday_screen_monitor";
     private MediaProjection projection;
     private VirtualDisplay display;
@@ -80,6 +81,7 @@ public class ScreenMonitorService extends Service {
 
                 projection.registerCallback(new MediaProjection.Callback() {
                     @Override public void onStop() {
+                        publish("توقف تسجيل الشاشة من النظام. ارجع للتطبيق واضغط بدء التسجيل مرة أخرى.");
                         stopCapture();
                         stopForeground(true);
                         stopSelf();
@@ -88,7 +90,7 @@ public class ScreenMonitorService extends Service {
                 startCapture();
             }
         } catch (SecurityException | IllegalStateException e) {
-            publish("تعذر تشغيل تسجيل الشاشة: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            publish("فشل تشغيل تسجيل الشاشة: " + e.getClass().getSimpleName() + " - " + e.getMessage());
             stopCapture();
             stopForeground(true);
             stopSelf();
@@ -126,7 +128,10 @@ public class ScreenMonitorService extends Service {
         if (display == null) throw new IllegalStateException("تعذر إنشاء شاشة المراقبة الافتراضية");
         running = true;
         handler.post(analyzeFrame);
-        publish("التسجيل يعمل الآن. افتح Hay Day؛ تحليل الشاشة مستمر بالخلفية.");
+        publish("التسجيل يعمل الآن. تأكدنا من التقاط الشاشة؛ جارٍ فتح اللعبة...");
+        Intent ready = new Intent(ACTION_READY);
+        ready.setPackage(getPackageName());
+        sendBroadcast(ready);
     }
 
     private final Runnable analyzeFrame = new Runnable() {

@@ -17,6 +17,7 @@ import android.widget.Toast;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 501;
+    private boolean gameOpened = false;
     private static final String HAY_DAY_PACKAGE = "com.supercell.hayday";
     private TextView status;
     private BroadcastReceiver receiver;
@@ -117,10 +118,18 @@ public class MainActivity extends Activity {
             @Override public void onReceive(Context context, Intent intent) {
                 if (ScreenMonitorService.ACTION_STATUS.equals(intent.getAction()) && status != null) {
                     status.setText(intent.getStringExtra("message"));
+                } else if (ScreenMonitorService.ACTION_READY.equals(intent.getAction())) {
+                    status.setText("التسجيل شغال. جارٍ فتح Hay Day...");
+                    if (!gameOpened) {
+                        gameOpened = true;
+                        openHayDay();
+                    }
                 }
             }
         };
-        IntentFilter filter = new IntentFilter(ScreenMonitorService.ACTION_STATUS);
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(ScreenMonitorService.ACTION_STATUS);
+        filter.addAction(ScreenMonitorService.ACTION_READY);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
         else registerReceiver(receiver, filter);
     }
@@ -140,8 +149,7 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
             else startService(service);
 
-            status.setText("تم تشغيل التسجيل. جارٍ فتح Hay Day...");
-            openHayDay();
+            status.setText("تم إرسال طلب التسجيل. أنتظر تأكيد تشغيل التسجيل قبل فتح اللعبة...");
         } catch (Exception e) {
             showError("تعذر تشغيل خدمة التسجيل: " + e.getClass().getSimpleName() + " - " + e.getMessage());
         }
