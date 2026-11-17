@@ -1,5 +1,6 @@
 package com.hayday.wheatharvester;
 
+import android.app.Activity;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -63,7 +64,7 @@ public class ScreenMonitorService extends Service {
             if (projection == null && intent != null) {
                 int code = intent.getIntExtra("resultCode", 0);
                 Intent data = getIntentExtra(intent);
-                if (code != RESULT_OK || data == null) {
+                if (code != Activity.RESULT_OK || data == null) {
                     publish("تعذر بدء التسجيل: لم تصل موافقة تسجيل الشاشة إلى الخدمة.");
                     stopForeground(true);
                     stopSelf();
