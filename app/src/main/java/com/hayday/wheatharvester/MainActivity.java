@@ -12,6 +12,7 @@ import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 501;
@@ -46,8 +47,27 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams bp = params(); bp.topMargin = 24;
         root.addView(start, bp);
         start.setOnClickListener(v -> {
-            MediaProjectionManager manager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-            startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_CAPTURE);
+            try {
+                MediaProjectionManager manager =
+                        (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+                if (manager == null) {
+                    status.setText("تعذر تشغيل تسجيل الشاشة: خدمة النظام غير متاحة.");
+                    Toast.makeText(this, "خدمة تسجيل الشاشة غير متاحة على الجهاز", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                Intent captureIntent = manager.createScreenCaptureIntent();
+                if (captureIntent == null) {
+                    status.setText("تعذر إنشاء نافذة السماح بتسجيل الشاشة.");
+                    Toast.makeText(this, "لم يتمكن النظام من إنشاء طلب تسجيل الشاشة", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                status.setText("جارٍ فتح نافذة السماح بتسجيل الشاشة...");
+                startActivityForResult(captureIntent, REQUEST_CAPTURE);
+            } catch (Exception e) {
+                String reason = e.getClass().getSimpleName() + ": " + e.getMessage();
+                status.setText("تعذر بدء تسجيل الشاشة: " + reason);
+                Toast.makeText(this, "خطأ: " + reason, Toast.LENGTH_LONG).show();
+            }
         });
 
         Button stop = new Button(this);
