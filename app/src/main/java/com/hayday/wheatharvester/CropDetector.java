@@ -8,12 +8,13 @@ import android.graphics.Color;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
- * Conservative on-device wheat candidate detector.
- * Uses bundled crop references as color-profile hints plus spatial HSV checks.
- * This is NOT a trained ML model; uncertain regions are never actionable.
+ * Conservative wheat-only detector. Color similarity is a candidate signal,
+ * not proof of crop identity. Automatic actions require a high threshold and
+ * an explicit user opt-in through Accessibility settings.
  */
 public final class CropDetector {
     public enum Kind { RIPE_WHEAT_CANDIDATE, EMPTY_OR_NON_YELLOW, UNCERTAIN }
@@ -29,6 +30,9 @@ public final class CropDetector {
             this.left = left; this.top = top; this.right = right; this.bottom = bottom;
             this.yellowRatio = yellowRatio; this.confidence = confidence; this.kind = kind;
         }
+
+        public float centerX() { return (left + right) * 0.5f; }
+        public float centerY() { return (top + bottom) * 0.5f; }
     }
 
     private static final int COLS = 24;
@@ -39,7 +43,6 @@ public final class CropDetector {
 
     public static List<Region> analyze(Context context, Bitmap bitmap) {
         float ripeHue = referenceHue(context, "crops/ripe_wheat.png", 48f);
-        // Empty-field reference is retained as a negative reference profile.
         float emptyHue = referenceHue(context, "crops/empty_field.png", 28f);
         int width = bitmap.getWidth(), height = bitmap.getHeight();
         float[][] ratios = new float[ROWS][COLS];
@@ -68,7 +71,8 @@ public final class CropDetector {
                 float ratio = total == 0 ? 0f : (float) yellow / total;
                 ratios[row][col] = ratio;
                 float meanDistance = yellow == 0 ? 180f : hueDistance / yellow;
-                hueScores[row][col] = Math.max(0f, 1f - meanDistance / 30f);
+                float referenceSeparation = Math.min(1f, Math.abs(ripeHue - emptyHue) / 35f);
+                hueScores[row][col] = Math.max(0f, 1f - meanDistance / 30f) * referenceSeparation;
                 active[row][col] = ratio >= MIN_YELLOW;
             }
         }
@@ -101,15 +105,15 @@ public final class CropDetector {
                 float yellowRatio = sum / count;
                 float hueMatch = hueSum / count;
                 float confidence = Math.min(0.95f, 0.55f * yellowRatio + 0.45f * hueMatch);
-                // A yellow patch is only a candidate. The color reference alone
-                // cannot prove crop identity, so never mark it as confirmed.
-                Kind kind = (yellowRatio >= 0.48f && hueMatch >= 0.55f)
+                // Strict threshold: weak yellow patches stay uncertain and cannot be tapped.
+                Kind kind = (yellowRatio >= 0.70f && hueMatch >= 0.70f && confidence >= 0.78f)
                         ? Kind.RIPE_WHEAT_CANDIDATE : Kind.UNCERTAIN;
                 regions.add(new Region((float)minC/COLS, (float)minR/ROWS,
                         (float)(maxC+1)/COLS, (float)(maxR+1)/ROWS,
                         yellowRatio, confidence, kind));
             }
         }
+        regions.sort(Comparator.comparingDouble((Region r) -> r.confidence).reversed());
         return regions;
     }
 
