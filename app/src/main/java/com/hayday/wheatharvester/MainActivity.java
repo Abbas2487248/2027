@@ -140,8 +140,20 @@ public class MainActivity extends Activity {
         }
         double yellowPct = yellow * 100.0 / sampled;
         double greenPct = green * 100.0 / sampled;
-        status.setText(String.format(java.util.Locale.US,
-                "تم فحص الصورة: %d × %d\nبكسلات العينة: %d\nألوان صفراء: %.1f%%\nألوان خضراء: %.1f%%\n\nهذه نسب ألوان عامة وليست كشفاً مؤكداً للقمح الناضج.",
+        java.util.List<CropDetector.Region> candidates = CropDetector.findYellowCandidates(bitmap);
+        StringBuilder report = new StringBuilder();
+        report.append(String.format(java.util.Locale.US,
+                "تم فحص الصورة: %d × %d\\nبكسلات العينة: %d\\nألوان صفراء: %.1f%%\\nألوان خضراء: %.1f%%\\n",
                 width, height, sampled, yellowPct, greenPct));
+        report.append("\\nمناطق صفراء محتملة: ").append(candidates.size()).append("\\n");
+        for (int i = 0; i < candidates.size(); i++) {
+            CropDetector.Region region = candidates.get(i);
+            report.append(String.format(java.util.Locale.US,
+                    "%d) من x %.0f%% إلى %.0f%%، y %.0f%% إلى %.0f%% (أصفر %.0f%%)\\n",
+                    i + 1, region.left * 100f, region.right * 100f,
+                    region.top * 100f, region.bottom * 100f, region.yellowRatio * 100f));
+        }
+        report.append("\\nهذه مناطق مرشحة حسب اللون فقط، وليست تأكيداً أن المحصول قمح ناضج.");
+        status.setText(report.toString());
     }
 }
