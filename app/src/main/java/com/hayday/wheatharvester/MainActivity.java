@@ -1,159 +1,110 @@
 package com.hayday.wheatharvester;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Color;
-import android.net.Uri;
+import android.content.IntentFilter;
+import android.media.projection.MediaProjectionManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.widget.Button;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
-import java.io.InputStream;
-
 public class MainActivity extends Activity {
-    private static final int PICK_IMAGE = 41;
+    private static final int REQUEST_CAPTURE = 501;
     private TextView status;
-    private ImageView preview;
+    private BroadcastReceiver receiver;
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        ScrollView scroll = new ScrollView(this);
+    @Override public void onCreate(Bundle state) {
+        super.onCreate(state);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setPadding(24, 28, 24, 28);
-        root.setBackgroundColor(Color.rgb(248, 249, 244));
-        scroll.addView(root);
+        root.setPadding(28, 36, 28, 28);
+        root.setBackgroundColor(0xfff7f8f2);
 
         TextView title = new TextView(this);
         title.setText("بوت حصاد القمح - Hay Day");
-        title.setTextSize(24);
-        title.setTextColor(Color.rgb(42, 74, 39));
+        title.setTextSize(23);
+        title.setTextColor(0xff315b2d);
         title.setGravity(Gravity.CENTER);
-        root.addView(title, matchWrap());
+        root.addView(title, params());
 
-        TextView intro = new TextView(this);
-        intro.setText("المرحلة الحالية: تجربة تحليل صورة من اللعبة. اختر لقطة شاشة حتى نفحص الألوان ومناطق القمح المحتملة. لا توجد نقرات أو زراعة أو بيع آلي في هذه النسخة.");
-        intro.setTextSize(15);
-        intro.setTextColor(Color.DKGRAY);
-        intro.setGravity(Gravity.CENTER);
-        addTop(root, intro, 16);
+        TextView info = new TextView(this);
+        info.setText("التعرّف المباشر على الشاشة\nاضغط بدء المراقبة ثم وافق على مشاركة الشاشة. سيحلل التطبيق الإطارات دورياً ويعرض مواقع المناطق الصفراء المرشحة. لا ينفذ لمساً أو حصاداً تلقائياً في هذه النسخة.");
+        info.setTextSize(16);
+        info.setTextColor(0xff333333);
+        info.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams ip = params(); ip.topMargin = 24;
+        root.addView(info, ip);
 
-        Button choose = new Button(this);
-        choose.setText("اختيار صورة من الهاتف");
-        addTop(root, choose, 20);
-        choose.setOnClickListener(v -> {
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("image/*");
-            startActivityForResult(intent, PICK_IMAGE);
+        Button start = new Button(this);
+        start.setText("بدء التعرف المباشر");
+        LinearLayout.LayoutParams bp = params(); bp.topMargin = 24;
+        root.addView(start, bp);
+        start.setOnClickListener(v -> {
+            MediaProjectionManager manager = (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
+            startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_CAPTURE);
         });
 
-        preview = new ImageView(this);
-        preview.setAdjustViewBounds(true);
-        preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        addTop(root, preview, 18);
+        Button stop = new Button(this);
+        stop.setText("إيقاف المراقبة");
+        LinearLayout.LayoutParams sp = params(); sp.topMargin = 8;
+        root.addView(stop, sp);
+        stop.setOnClickListener(v -> {
+            Intent service = new Intent(this, ScreenMonitorService.class);
+            service.setAction(ScreenMonitorService.ACTION_STOP);
+            startService(service);
+            status.setText("تم طلب إيقاف المراقبة.");
+        });
 
         status = new TextView(this);
-        status.setText("الحالة: بانتظار اختيار صورة");
+        status.setText("الحالة: متوقف");
         status.setTextSize(15);
-        status.setTextColor(Color.DKGRAY);
+        status.setTextColor(0xff222222);
         status.setGravity(Gravity.CENTER);
-        addTop(root, status, 18);
-
-        TextView note = new TextView(this);
-        note.setText("تنبيه: فحص اللون خطوة أولية فقط، وليس تعرّفاً مؤكداً على نوع المحصول. نحتاج صوراً فعلية متنوعة لاختبار الدقة قبل إضافة التحكم باللعبة.");
-        note.setTextSize(13);
-        note.setTextColor(Color.GRAY);
-        addTop(root, note, 18);
-
-        setContentView(scroll);
+        LinearLayout.LayoutParams st = params(); st.topMargin = 24;
+        root.addView(status, st);
+        setContentView(root);
+        registerStatusReceiver();
     }
 
-    private LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT);
+    private LinearLayout.LayoutParams params() {
+        return new LinearLayout.LayoutParams(-1, -2);
     }
 
-    private void addTop(LinearLayout root, android.view.View view, int margin) {
-        LinearLayout.LayoutParams params = matchWrap();
-        params.topMargin = margin;
-        root.addView(view, params);
+    private void registerStatusReceiver() {
+        receiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (ScreenMonitorService.ACTION_STATUS.equals(intent.getAction())) {
+                    status.setText(intent.getStringExtra("message"));
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(ScreenMonitorService.ACTION_STATUS);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(receiver, filter);
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != PICK_IMAGE || resultCode != RESULT_OK || data == null) return;
-
-        Uri uri = data.getData();
-        if (uri == null) return;
-        try (InputStream input = getContentResolver().openInputStream(uri)) {
-            Bitmap bitmap = BitmapFactory.decodeStream(input);
-            if (bitmap == null) {
-                status.setText("تعذر قراءة الصورة. اختر صورة PNG أو JPG أخرى.");
-                return;
-            }
-            preview.setImageBitmap(bitmap);
-            analyzeImage(bitmap);
-        } catch (Exception e) {
-            status.setText("حدث خطأ أثناء فتح الصورة: " + e.getMessage());
+        if (requestCode == REQUEST_CAPTURE) {
+            if (resultCode == RESULT_OK && data != null) {
+                Intent service = new Intent(this, ScreenMonitorService.class);
+                service.putExtra("resultCode", resultCode);
+                service.putExtra("resultData", data);
+                if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
+                else startService(service);
+                status.setText("بدأت المراقبة. ارجع إلى Hay Day واترك التطبيق يعمل.");
+            } else status.setText("لم تتم الموافقة على مشاركة الشاشة.");
         }
     }
 
-    private void analyzeImage(Bitmap bitmap) {
-        int width = bitmap.getWidth();
-        int height = bitmap.getHeight();
-        int stepX = Math.max(1, width / 240);
-        int stepY = Math.max(1, height / 240);
-        long sampled = 0;
-        long yellow = 0;
-        long green = 0;
-
-        float[] hsv = new float[3];
-        for (int y = 0; y < height; y += stepY) {
-            for (int x = 0; x < width; x += stepX) {
-                int pixel = bitmap.getPixel(x, y);
-                Color.colorToHSV(pixel, hsv);
-                float hue = hsv[0];
-                float saturation = hsv[1];
-                float value = hsv[2];
-                if (saturation < 0.20f || value < 0.18f) continue;
-                sampled++;
-                if (hue >= 35f && hue <= 68f) yellow++;
-                if (hue >= 70f && hue <= 165f) green++;
-            }
-        }
-
-        if (sampled == 0) {
-            status.setText("الصورة لا تحتوي ألواناً واضحة كافية للتحليل.");
-            return;
-        }
-        double yellowPct = yellow * 100.0 / sampled;
-        double greenPct = green * 100.0 / sampled;
-        java.util.List<CropDetector.Region> candidates = CropDetector.findYellowCandidates(bitmap);
-        StringBuilder report = new StringBuilder();
-        report.append(String.format(java.util.Locale.US,
-                "تم فحص الصورة: %d × %d\\nبكسلات العينة: %d\\nألوان صفراء: %.1f%%\\nألوان خضراء: %.1f%%\\n",
-                width, height, sampled, yellowPct, greenPct));
-        report.append("\\nمناطق صفراء محتملة: ").append(candidates.size()).append("\\n");
-        for (int i = 0; i < candidates.size(); i++) {
-            CropDetector.Region region = candidates.get(i);
-            report.append(String.format(java.util.Locale.US,
-                    "%d) من x %.0f%% إلى %.0f%%، y %.0f%% إلى %.0f%% (أصفر %.0f%%)\\n",
-                    i + 1, region.left * 100f, region.right * 100f,
-                    region.top * 100f, region.bottom * 100f, region.yellowRatio * 100f));
-        }
-        report.append("\\nهذه مناطق مرشحة حسب اللون فقط، وليست تأكيداً أن المحصول قمح ناضج.");
-        status.setText(report.toString());
+    @Override protected void onDestroy() {
+        if (receiver != null) unregisterReceiver(receiver);
+        super.onDestroy();
     }
 }
