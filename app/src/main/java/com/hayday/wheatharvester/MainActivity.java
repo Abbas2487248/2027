@@ -11,6 +11,7 @@ import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.net.Uri;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -19,6 +20,7 @@ import android.widget.Toast;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 501;
+    private static final int REQUEST_OVERLAY = 502;
     private static final String HAY_DAY_PACKAGE = "com.supercell.hayday";
     private static final String PREFS = "wheat_bot";
     private static final String AUTO_HARVEST = "auto_harvest";
@@ -162,7 +164,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_CAPTURE) return;
+        if (requestCode == REQUEST_OVERLAY) {\n            if (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) requestScreenCapture();\n            else status.setText("لم يتم منح إذن الظهور فوق التطبيقات.");\n            return;\n        }\n        if (requestCode != REQUEST_CAPTURE) return;
         if (resultCode != RESULT_OK || data == null) {
             status.setText("لم تتم الموافقة على تسجيل الشاشة. اضغط بدء التسجيل وحاول مرة أخرى.");
             return;
