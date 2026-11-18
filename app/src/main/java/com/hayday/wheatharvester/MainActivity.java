@@ -110,6 +110,13 @@ public class MainActivity extends Activity {
     }
 
     private void requestScreenCapture() {
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+            status.setText("اسمح للتطبيق بالظهور فوق اللعبة حتى تظهر لوحة التحكم.");
+            Intent overlay = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivityForResult(overlay, REQUEST_OVERLAY);
+            return;
+        }
         try {
             MediaProjectionManager manager =
                     (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
@@ -151,6 +158,8 @@ public class MainActivity extends Activity {
                     status.setText(intent.getStringExtra("message"));
                 } else if (ScreenMonitorService.ACTION_READY.equals(intent.getAction())) {
                     status.setText("التسجيل شغال. جارٍ فتح Hay Day...");
+                    Intent overlay = new Intent(MainActivity.this, FloatingControlsService.class);
+                    if (Build.VERSION.SDK_INT >= 26) startForegroundService(overlay); else startService(overlay);
                     if (!gameOpened) { gameOpened = true; openHayDay(); }
                 }
             }
