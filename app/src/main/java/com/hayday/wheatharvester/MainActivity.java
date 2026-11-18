@@ -159,7 +159,7 @@ public class MainActivity extends Activity {
                 } else if (ScreenMonitorService.ACTION_READY.equals(intent.getAction())) {
                     status.setText("التسجيل شغال. جارٍ فتح Hay Day...");
                     Intent overlay = new Intent(MainActivity.this, FloatingControlsService.class);
-                    if (Build.VERSION.SDK_INT >= 26) startForegroundService(overlay); else startService(overlay);
+                    startService(overlay);
                     if (!gameOpened) { gameOpened = true; openHayDay(); }
                 }
             }
