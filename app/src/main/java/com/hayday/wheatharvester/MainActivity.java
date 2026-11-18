@@ -164,7 +164,15 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_OVERLAY) {\n            if (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) requestScreenCapture();\n            else status.setText("لم يتم منح إذن الظهور فوق التطبيقات.");\n            return;\n        }\n        if (requestCode != REQUEST_CAPTURE) return;
+        if (requestCode == REQUEST_OVERLAY) {
+            if (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) {
+                requestScreenCapture();
+            } else {
+                status.setText("لم يتم منح إذن الظهور فوق التطبيقات.");
+            }
+            return;
+        }
+        if (requestCode != REQUEST_CAPTURE) return;
         if (resultCode != RESULT_OK || data == null) {
             status.setText("لم تتم الموافقة على تسجيل الشاشة. اضغط بدء التسجيل وحاول مرة أخرى.");
             return;
